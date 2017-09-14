@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Aug 26 20:25:45 2017
-
-@author: Administrator
+Created by Jiachen Wang
+PS: this approach is still updating, not the perfect version yet
+PPS: the main purpose of this program is to give you some insights of this competition
 """
+
+'''import all the pakages needed
+the keras package imported here is based on tensorflow backend
+you should have your GPU-version tensorflow package installed
+'''
 import os
 os.environ['KERAS_BACKEND'] = 'tensorflow'
 import keras.backend as K
 K.set_image_dim_ordering('tf')
+
 import pandas as pd
 import numpy as np
 from random import shuffle
@@ -30,7 +36,9 @@ import seaborn
 import xgboost
 
 INPUT_DIM=300
-
+'''
+use pandas to read in the four csv files and do some tricks
+'''
 train_variant=pd.read_csv("training_variants.csv")
 test_variant = pd.read_csv("test_variants.csv")
 train_text = pd.read_csv("training_text", sep="\|\|", 
@@ -39,7 +47,7 @@ test_text = pd.read_csv("test_text", sep="\|\|",
                         engine='python', header=None, skiprows=1, names=["ID","Text"])
 train = pd.merge(train_variant, train_text, how='left', on='ID')
 
-train_y = train['Class'].values #取到的是一个array
+train_y = train['Class'].values 
 train_x = train.drop('Class', axis=1)
 train_size=train_x.shape[0]
 test_x = pd.merge(test_variant, test_text, how='left', on='ID')
@@ -49,15 +57,13 @@ all_data = np.concatenate((train_x, test_x), axis=0)
 all_data = pd.DataFrame(all_data)
 all_data.columns = ["ID", "Gene", "Variation", "Text"]
 
+'''word stemmers for NLP analysis'''
 porter_stemmer = PorterStemmer()
 wordnet_lemmatizer = WordNetLemmatizer()
 
+'''feature extractions'''
 all_data['Gene_Share'] = all_data.apply(lambda r: sum([1 for w in r['Gene'].split(' ') if w in r['Text'].split(' ')]), axis=1)
 all_data['Variation_Share'] =all_data.apply(lambda r: sum([1 for w in r['Variation'].split(' ') if w in r['Text'].split(' ')]), axis=1)
-
-#gen_var_lst = sorted(list(train.Gene.unique()) + list(train.Variation.unique()))
-#gen_var_lst = [x for x in gen_var_lst if len(x.split(' '))==1]
-
 AA_VALID = 'ACDEFGHIKLMNPQRSTVWY'
 all_data["simple_variation_pattern"] =all_data.Variation.str.contains(r'^[A-Z]\d{1,7}[A-Z]',case=False)
 all_data["simple_variation_pattern"]=pd.get_dummies(all_data["simple_variation_pattern"])
@@ -69,6 +75,7 @@ all_data.loc[all_data.simple_variation_pattern==False,['variant_letter_last',"va
 all_data['Text_len'] = all_data['Text'].map(lambda x: len(str(x)))
 all_data['Text_words'] = all_data['Text'].map(lambda x: len(str(x).split(' '))) 
 
+'''some helper function'''
 def TransDict_from_list(groups):
    result = {}
    for group in groups:
@@ -76,6 +83,7 @@ def TransDict_from_list(groups):
         for c in g_members:
             result[c] = str(g_members[0]) #K:V map, use group's first letter as represent.
    return result
+
 ofer8=TransDict_from_list(["C", "G", "P", "FYW", "AVILM", "RKH", "DE", "STNQ"])
 sdm12 =TransDict_from_list(
     ["A", "D", "KER", "N",  "TSQ", "YF", "LIVM", "C", "W", "H", "G", "P"] )
@@ -93,7 +101,6 @@ pc5 = {"I": "A", # Aliphatic
 
 all_data['AAGroup_ofer8_letter_first'] = all_data["variant_letter_first"].map(ofer8).fillna('U')
 all_data['AAGroup_ofer8_letter_last'] = all_data["variant_letter_last"].map(ofer8).fillna('U')
-
 all_data['AAGroup_ofer8_equiv'] = all_data['AAGroup_ofer8_letter_first'] == all_data['AAGroup_ofer8_letter_last']
 all_data['AAGroup_ofer8_equiv']=pd.get_dummies(all_data['AAGroup_ofer8_equiv'])
 all_data['AAGroup_m12_equiv'] =all_data['variant_letter_last'].map(sdm12) == all_data['variant_letter_first'].map(sdm12)
@@ -101,6 +108,7 @@ all_data['AAGroup_m12_equiv']=pd.get_dummies(all_data['AAGroup_m12_equiv'])
 all_data['AAGroup_p5_equiv'] =all_data['variant_letter_last'].map(pc5) ==all_data['variant_letter_first'].map(pc5)
 all_data['AAGroup_p5_equiv']=pd.get_dummies(all_data['AAGroup_p5_equiv'])
 
+'''encode features into one-hot'''
 a=pd.get_dummies(all_data['AAGroup_ofer8_letter_first'])
 b=pd.get_dummies(all_data['AAGroup_ofer8_letter_last'])
 c=pd.get_dummies(all_data['variant_letter_first'])
@@ -113,12 +121,8 @@ a=a.values
 b=b.values
 c=c.values
 d=d.values
-#label_encoder.fit(all_data['Gene'])
-#gene=np_utils.to_categorical((label_encoder.transform(all_data['Gene'])))
 
-#lbl = LabelEncoder()
-#all_data[c+'_lbl_enc'] = lbl.fit_transform(all_data[c].values)  
-           
+'''free up some memory'''
 del train_variant,test_variant,train_text,test_text,train_x,test_x
 
 def constructLabeledSentences(data):
@@ -126,6 +130,8 @@ def constructLabeledSentences(data):
     for index, row in data.iteritems():
         sentences.append(LabeledSentence(utils.to_unicode(row).split(), ['Text' + '_%s' % str(index)]))
     return sentences
+ 
+'''clean up the texts'''
 def cleanup(line):
     line = re.sub(r"[^A-Za-z0-9^,!.\/'+-=]", " ", line)
     line = line.lower()
@@ -142,12 +148,12 @@ def cleanup(line):
     wordnet_lemmatizer.lemmatize(line,pos='r')
     return line
 
+'''encode target into one-hot'''
 label_encoder = LabelEncoder()
 label_encoder.fit(train_y)
 encoded_y = np_utils.to_categorical((label_encoder.transform(train_y)))
-#label_encoder.fit(all_data['Gene'])
-#gene=np_utils.to_categorical((label_encoder.transform(all_data['Gene'])))
 
+'''the weight deals with imbalance distribution of train target classes'''
 aa=[0,0,0,0,0,0,0,0,0,0]
 bb=[1,1,1,1,1,1,1,1,1,1]
 for i in train_y:
@@ -164,6 +170,7 @@ del aa,bb
 #f1 = np.squeeze(np.asarray(vectorizer.fit_transform(l1).todense())) 
 #del l1
 
+'''train doc-to-vec model'''
 model=None
 filename='docEmbeddings.d2v'
 if os.path.isfile(filename):
@@ -176,10 +183,10 @@ else:
     model.train(sentences, total_examples=model.corpus_count, epochs=model.iter)
     model.save(filename)
 
+'''construct final train arrays'''
 del all_data
 train_arrays = np.zeros((train_size, INPUT_DIM))
 test_arrays = np.zeros((test_size, INPUT_DIM))
-
 for i in range(train_size):
     train_arrays[i] = model.docvecs['Text_'+str(i)]
 j=0
@@ -203,6 +210,7 @@ test_arrays=np.concatenate((test_arrays,d[train_size:]),axis=1)
 weight=np.asarray(weight)
 del a,b,c,d
 
+'''keras deep leaning model'''
 def baseline_model():
     model = Sequential()
     model.add(Dense(1000, input_dim=train_arrays.shape[1],init='normal', activation='relu'))
@@ -231,18 +239,14 @@ def baseline_model():
 #    for j in range (9):
 #        if y_pred[i][j]==max(y_pred[i]):y_pred[i][j]=1
 #        else: y_pred[i][j]=0
-        
+
+'''train the model'''
 estimator = KerasClassifier(build_fn=baseline_model, epochs=50, batch_size=32)
 estimator.fit(train_arrays, encoded_y, validation_split=0.10,sample_weight =weight)
 
+'''predict test data based on keras model'''
 y_pred = estimator.predict_proba(test_arrays)
 submission = pd.DataFrame(y_pred)
 submission['id'] = test_index
 submission.columns = ['class1', 'class2', 'class3', 'class4', 'class5', 'class6', 'class7', 'class8', 'class9', 'id']
 submission.to_csv("submission.csv",index=False)
-
-print("Training accuracy: %.2f%% / Validation accuracy: %.2f%%" % 
-      (100*estimator.history['acc'][-1], 100*estimator.history['val_acc'][-1]))
-
-
-
