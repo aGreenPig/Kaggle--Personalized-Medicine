@@ -1,43 +1,63 @@
 # -*- coding: utf-8 -*-
 """
 Created by Jiachen Wang
-PS: this approach is still updating, not the perfect version yet
-PPS: the main purpose of this program is to give you some insights of this competition
+PS: this is the first version of my solution to approach this project
+PPS: the main purpose of this piece is to give you some possible insights and hints
+PPPS: I give credit to some really cool Kaggle kernel posts on https://www.kaggle.com/c/msk-redefining-cancer-treatment/kernels
+that help ignite my thoughts
 """
 
-'''import all the pakages needed
-the keras package imported here is based on tensorflow backend
-you should have your GPU-version tensorflow package installed
+'''import all the pakages needed'''
+'''
+keras is a cool deep learning framework
+I set my keras package to run on tensorflow backend
+doing so is a lot faster, but you should have your GPU-version tensorflow package installed
+see https://www.tensorflow.org/ for more detail
 '''
 import os
 os.environ['KERAS_BACKEND'] = 'tensorflow'
 import keras.backend as K
 K.set_image_dim_ordering('tf')
-
-import pandas as pd
-import numpy as np
-from random import shuffle
-from sklearn.preprocessing import LabelEncoder
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from keras.wrappers.scikit_learn import KerasClassifier
 from keras.models import Sequential
 from keras.layers import Input, LSTM, dot, Flatten, Dense, Reshape, add, Dropout, BatchNormalization, Embedding
 from keras.utils import np_utils
 from keras.preprocessing import text, sequence
+
+'''
+machine learning packages
+'''
+from sklearn.preprocessing import LabelEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+
+'''
+natural language processing(NLP) packages needed
+'''
 from gensim import utils
 from gensim.models.doc2vec import LabeledSentence
 from gensim.models import Doc2Vec
-import re
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 from nltk.stem import WordNetLemmatizer
+
+'''
+other related packages
+'''
+import pandas as pd
+import numpy as np
+from random import shuffle
 import seaborn
 import xgboost
+import re
 
-INPUT_DIM=300
 '''
-use pandas to read in the four csv files and do some tricks
+INPUT_DIM is for the size of word vectors
+'''
+INPUT_DIM=300
+
+'''
+read in the four csv files and do some tricks
 '''
 train_variant=pd.read_csv("training_variants.csv")
 test_variant = pd.read_csv("test_variants.csv")
@@ -61,7 +81,7 @@ all_data.columns = ["ID", "Gene", "Variation", "Text"]
 porter_stemmer = PorterStemmer()
 wordnet_lemmatizer = WordNetLemmatizer()
 
-'''feature extractions'''
+'''feature engineering'''
 all_data['Gene_Share'] = all_data.apply(lambda r: sum([1 for w in r['Gene'].split(' ') if w in r['Text'].split(' ')]), axis=1)
 all_data['Variation_Share'] =all_data.apply(lambda r: sum([1 for w in r['Variation'].split(' ') if w in r['Text'].split(' ')]), axis=1)
 AA_VALID = 'ACDEFGHIKLMNPQRSTVWY'
@@ -75,7 +95,6 @@ all_data.loc[all_data.simple_variation_pattern==False,['variant_letter_last',"va
 all_data['Text_len'] = all_data['Text'].map(lambda x: len(str(x)))
 all_data['Text_words'] = all_data['Text'].map(lambda x: len(str(x).split(' '))) 
 
-'''some helper function'''
 def TransDict_from_list(groups):
    result = {}
    for group in groups:
@@ -108,12 +127,15 @@ all_data['AAGroup_m12_equiv']=pd.get_dummies(all_data['AAGroup_m12_equiv'])
 all_data['AAGroup_p5_equiv'] =all_data['variant_letter_last'].map(pc5) ==all_data['variant_letter_first'].map(pc5)
 all_data['AAGroup_p5_equiv']=pd.get_dummies(all_data['AAGroup_p5_equiv'])
 
-'''encode features into one-hot'''
+'''encode non-number-type features into one-hot encoding'''
 a=pd.get_dummies(all_data['AAGroup_ofer8_letter_first'])
 b=pd.get_dummies(all_data['AAGroup_ofer8_letter_last'])
 c=pd.get_dummies(all_data['variant_letter_first'])
 d=pd.get_dummies(all_data['variant_letter_last'])
 
+'''
+final feature data
+'''
 col=all_data[['Gene_Share','Variation_Share','simple_variation_pattern','location_number',
     'Text_len','Text_words','AAGroup_ofer8_equiv','AAGroup_m12_equiv','AAGroup_p5_equiv']]
 arr=col.values
@@ -125,13 +147,15 @@ d=d.values
 '''free up some memory'''
 del train_variant,test_variant,train_text,test_text,train_x,test_x
 
+'''
+helper functions to aid constructing word vectors
+'''
 def constructLabeledSentences(data):
     sentences=[]
     for index, row in data.iteritems():
         sentences.append(LabeledSentence(utils.to_unicode(row).split(), ['Text' + '_%s' % str(index)]))
     return sentences
- 
-'''clean up the texts'''
+
 def cleanup(line):
     line = re.sub(r"[^A-Za-z0-9^,!.\/'+-=]", " ", line)
     line = line.lower()
@@ -148,7 +172,7 @@ def cleanup(line):
     wordnet_lemmatizer.lemmatize(line,pos='r')
     return line
 
-'''encode target into one-hot'''
+'''encode target into one-hot encoding as well'''
 label_encoder = LabelEncoder()
 label_encoder.fit(train_y)
 encoded_y = np_utils.to_categorical((label_encoder.transform(train_y)))
@@ -170,7 +194,7 @@ del aa,bb
 #f1 = np.squeeze(np.asarray(vectorizer.fit_transform(l1).todense())) 
 #del l1
 
-'''train doc-to-vec model'''
+'''construct word vectors using doc-to-vec method'''
 model=None
 filename='docEmbeddings.d2v'
 if os.path.isfile(filename):
@@ -183,7 +207,7 @@ else:
     model.train(sentences, total_examples=model.corpus_count, epochs=model.iter)
     model.save(filename)
 
-'''construct final train arrays'''
+'''finish constructing training and testing input arrays'''
 del all_data
 train_arrays = np.zeros((train_size, INPUT_DIM))
 test_arrays = np.zeros((test_size, INPUT_DIM))
@@ -210,7 +234,7 @@ test_arrays=np.concatenate((test_arrays,d[train_size:]),axis=1)
 weight=np.asarray(weight)
 del a,b,c,d
 
-'''keras deep leaning model'''
+'''define deep leaning model'''
 def baseline_model():
     model = Sequential()
     model.add(Dense(1000, input_dim=train_arrays.shape[1],init='normal', activation='relu'))
@@ -244,7 +268,7 @@ def baseline_model():
 estimator = KerasClassifier(build_fn=baseline_model, epochs=50, batch_size=32)
 estimator.fit(train_arrays, encoded_y, validation_split=0.10,sample_weight =weight)
 
-'''predict test data based on keras model'''
+'''predict test data based on deep learning model'''
 y_pred = estimator.predict_proba(test_arrays)
 submission = pd.DataFrame(y_pred)
 submission['id'] = test_index
