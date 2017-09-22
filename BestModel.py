@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep  5 20:50:49 2017
-
-@author: Administrator
+@author: Jiachen Wang
+this is my current and best model on this project: my current rank is top 20 percent
 """
 
 from sklearn import pipeline,feature_extraction,decomposition,model_selection,metrics
@@ -64,24 +63,6 @@ for c in df_all.columns:
         if c=='Text': 
             df_all[c+'_len'] = df_all[c].map(lambda x: len(str(x)))
             df_all[c+'_words'] = df_all[c].map(lambda x: len(str(x).split(' '))) 
-
-'''
-
-class cust_regression_vals(sklearn.base.BaseEstimator, sklearn.base.TransformerMixin):
-    def fit(self, x, y=None):
-        return self
-    def transform(self, x):
-        x = x.drop(['Gene', 'Variation','ID','Text'],axis=1).values
-        return x
-
-class cust_txt_col(sklearn.base.BaseEstimator, sklearn.base.TransformerMixin):
-    def __init__(self, key):
-        self.key = key
-    def fit(self, x, y=None):
-        return self
-    def transform(self, x):
-        return x[self.key].apply(str)
-'''
 
 AA_VALID = 'ACDEFGHIKLMNPQRSTVWY'
 df_all["simple_variation_pattern"] =df_all.Variation.str.contains(r'^[A-Z]\d{1,7}[A-Z]',case=False)
@@ -216,38 +197,6 @@ for i in range(train_size,train_size+test_size):
     test_arrays[j] = model.docvecs['Text_'+str(i)]
     j=j+1
     
-'''
-def baseline_model():
-    model = Sequential()
-    model.add(Dense(1000, input_dim=train_arrays.shape[1],init='normal', activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(BatchNormalization())
-    model.add(Dense(1000, input_dim=train_arrays.shape[1],init='normal', activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(BatchNormalization())
-    model.add(Dense(500, init='normal', activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(BatchNormalization())
-    model.add(Dense(500, init='normal', activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(BatchNormalization())
-    model.add(Dense(200, init='normal', activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(BatchNormalization())
-    model.add(Dense(200, init='normal', activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(BatchNormalization())
-    model.add(Dense(9, init='normal', activation="softmax"))
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    return model
-        
-estimator = KerasClassifier(build_fn=baseline_model, epochs=20, batch_size=32)
-estimator.fit(train_arrays, encoded_y, validation_split=0.15,sample_weight =weight)
-pred1 = estimator.predict_proba(train_arrays)
-pred2 = estimator.predict_proba(test_arrays)
-pred=np.concatenate((pred1,pred2),axis=0)
-del pred1,pred2
-'''
 pred=np.concatenate((train_arrays,test_arrays),axis=0)
 for i in range(9):
     df_all['kerasmodel_'+str(i)] = [row[i] for row in pred]
@@ -258,23 +207,6 @@ train = df_all.iloc[:len(train)]
 test = df_all.iloc[len(train):]
 del df_all,pred,train_arrays,test_arrays,encoded_y
 print('df_all is ready')
-
-'''
-print('Pipeline...')
-fp = pipeline.Pipeline([
-    ('union', pipeline.FeatureUnion(
-        n_jobs = -1,
-        transformer_list = [
-            ('standard', cust_regression_vals()),
-            ('pi1', pipeline.Pipeline([('Gene', cust_txt_col('Gene')), ('count_Gene', feature_extraction.text.CountVectorizer(analyzer=u'char', ngram_range=(1, 8))), ('tsvd1', decomposition.TruncatedSVD(n_components=20, n_iter=25, random_state=12))])),
-            ('pi2', pipeline.Pipeline([('Variation', cust_txt_col('Variation')), ('count_Variation', feature_extraction.text.CountVectorizer(analyzer=u'char', ngram_range=(1, 8))), ('tsvd2', decomposition.TruncatedSVD(n_components=20, n_iter=25, random_state=12))])),
-            #('pi3', pipeline.Pipeline([('Text', cust_txt_col('Text')), ('tfidf_Text', feature_extraction.text.TfidfVectorizer(ngram_range=(1, 2))), ('tsvd3', decomposition.TruncatedSVD(n_components=50, n_iter=25, random_state=12))]))
-        ])
-    )])
-    
-train = fp.fit_transform(train); print(train.shape)
-test = fp.transform(test); print(test.shape)
-'''
 
 y = y - 1 #fix for zero bound array
 denom = 0
@@ -301,54 +233,18 @@ for i in range(fold):
     print('processing..')
     
     if denom != 0:
-        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit+80)
+        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit)
         preds += pred
     else:
-        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit+80)
+        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit)
         preds = pred.copy()
     denom += 1
     submission = pd.DataFrame(pred, columns=['class'+str(c+1) for c in range(9)])
     submission['ID'] = pid
     submission.to_csv('submission_xgb_fold_'  + str(i) + '.csv', index=False)
     #print(model.feature_importances_)
-    
-    '''
-    xgb_param=alg.get_xgb_params()
-    xgtrain=xgb.DMatrix(dtrain[predictors].values,label=dtrain[target].values)
-        cvresult=xgb.cv(xgb_param,xgtrain,num_boost_round=alg.get_params()['n_estimators'],nfold=cv_folds,
-            metrics='auc',early_stopping_rounds=early_stopping_rounds)
-        alg.set_params(n_estimators=cvresult.shape[0])
-        alg.fit(dtrain[predictors],dtrain['Disbursed'],eval_metric='auc')
-        dtrain_predictions = alg.predict(dtrain[predictors])
-        dtrain_predprob = alg.predict_proba(dtrain[predictors])[:,1]
-        print ("Accuracy ",metrics.accuracy_score(dtrain['Disbursed'].values, dtrain_predictions))
-        print ("AUC Score ",metrics.roc_auc_score(dtrain['Disbursed'], dtrain_predprob))
-        feat_imp=pd.Series(alg.booster().get_fscore()).sort_values(ascending=False)
-        feat_imp.plot(kind='bar',title='Feature Importances')
-        print(cvresult.shape[0])
 
-    rcParams['figure.figsize']=12,4
-    train=pd.read_csv('train_modified.csv')
-    target='Disbursed'
-    IDcol='ID'
-    predictors = [x for x in train.columns if x not in [target, IDcol]]
-    xgb1=XGBClassifier(
-            learning_rate =0.1,
-            n_estimators=1000,
-            max_depth=5,
-            min_child_weight=1,
-            gamma=0,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            objective= 'binary:logistic',
-            nthread=4,
-            scale_pos_weight=1,
-            seed=27)
-    modelfit(xgb1, train, predictors)
-    '''
 preds/=denom
 submission = pd.DataFrame(preds, columns=['class'+str(c+1) for c in range(9)])
 submission['ID'] = pid
 submission.to_csv('submission_xgb.csv', index=False)
-
-'''end of file'''
