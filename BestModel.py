@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @author: Jiachen Wang
-this is my current and best model on this project: my current rank is top 20 percent
+this is my best model, ranking top 10 percent on LeaderBoard
 """
 
 from sklearn import pipeline,feature_extraction,decomposition,model_selection,metrics
@@ -12,25 +12,29 @@ import xgboost as xgb
 from xgboost.sklearn import XGBClassifier
 import os
 from matplotlib import pyplot
-os.chdir("D:\py2\medicine")
 
+oldtest = pd.read_csv('test_variants.csv')
+oldtestx = pd.read_csv('test_text.csv', sep="\|\|", engine='python', header=None, skiprows=1, names=["ID","Text"])
+x = pd.merge(oldtest, oldtestx, how='left', on='ID').fillna('') 
+sol = pd.read_csv('stage1_solution_filtered.csv')
+x = pd.merge(x, sol, how='left', on='ID').fillna('')
+y=x.loc[x["Class"] != '']
+del x,oldtest,oldtestx
 train = pd.read_csv('training_variants.csv')
-test = pd.read_csv('test_variants.csv')
-trainx = pd.read_csv('training_text', sep="\|\|", engine='python', header=None, skiprows=1, names=["ID","Text"])
-testx = pd.read_csv('test_text', sep="\|\|", engine='python', header=None, skiprows=1, names=["ID","Text"])
-train_size=train.shape[0]
-test_size=test.shape[0]
+test = pd.read_csv('stage2_test_variants.csv')
+trainx = pd.read_csv('training_text.csv', sep="\|\|", engine='python', header=None, skiprows=1, names=["ID","Text"])
+testx = pd.read_csv('stage2_test_text.csv', sep="\|\|", engine='python', header=None, skiprows=1, names=["ID","Text"])
 
 train = pd.merge(train, trainx, how='left', on='ID').fillna('')
-y = train['Class'].values
+train=pd.concat([train,y])
 train_y = train['Class'].values
 train = train.drop(['Class'], axis=1)
-
-
 test = pd.merge(test, testx, how='left', on='ID').fillna('')
 pid = test['ID'].values
-
+train_size=train.shape[0]
+test_size=test.shape[0]
 df_all = pd.concat((train, test), axis=0, ignore_index=True)
+
 df_all['Gene_Share'] = df_all.apply(lambda r: sum([1 for w in r['Gene'].split(' ') if w in r['Text'].split(' ')]), axis=1)
 df_all['Variation_Share'] = df_all.apply(lambda r: sum([1 for w in r['Variation'].split(' ') if w in r['Text'].split(' ')]), axis=1)
 
@@ -151,16 +155,6 @@ label_encoder = LabelEncoder()
 label_encoder.fit(train_y)
 encoded_y = np_utils.to_categorical((label_encoder.transform(train_y)))
 
-aa=[0,0,0,0,0,0,0,0,0,0]
-bb=[1,1,1,1,1,1,1,1,1,1]
-for i in train_y:
-    aa[i]+=1
-for i in range(1,10):
-    bb[i]*=aa[7]/aa[i]
-weight=[bb[i] for i in train_y]
-del aa,bb
-weight=np.asarray(weight)
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import PCA
 l1=[]
@@ -196,7 +190,7 @@ j=0
 for i in range(train_size,train_size+test_size):
     test_arrays[j] = model.docvecs['Text_'+str(i)]
     j=j+1
-    
+
 pred=np.concatenate((train_arrays,test_arrays),axis=0)
 for i in range(9):
     df_all['kerasmodel_'+str(i)] = [row[i] for row in pred]
@@ -208,7 +202,7 @@ test = df_all.iloc[len(train):]
 del df_all,pred,train_arrays,test_arrays,encoded_y
 print('df_all is ready')
 
-y = y - 1 #fix for zero bound array
+train_y =  train_y - 1 #fix for zero bound array
 denom = 0
 preds=0
 fold = 10
@@ -225,24 +219,21 @@ for i in range(fold):
         'subsample':0.8,
         'colsample_bytree':0.8,
     }
-    x1, x2, y1, y2 = model_selection.train_test_split(train, y, test_size=0.15, random_state=i)
+    x1, x2, y1, y2 = model_selection.train_test_split(train, train_y, test_size=0.15, random_state=i)
     watchlist = [(xgb.DMatrix(x1, y1,missing=0), 'train'), (xgb.DMatrix(x2, y2,missing=0), 'valid')]
-    model = xgb.train(params, xgb.DMatrix(x1, y1,missing=0), 1000,  watchlist, verbose_eval=50, early_stopping_rounds=120)
-    #score1 = metrics.log_loss(y2, model.predict(xgb.DMatrix(x2,missing=0), ntree_limit=model.best_ntree_limit), labels = list(range(9)))
-    #print("score:: ",score1)
-    print('processing..')
+    model = xgb.train(params, xgb.DMatrix(x1, y1,missing=0), 1000,  watchlist, verbose_eval=50, early_stopping_rounds=100)
+    print('still processing')
     
     if denom != 0:
-        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit)
+        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit+80)
         preds += pred
     else:
-        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit)
+        pred = model.predict(xgb.DMatrix(test,missing=0), ntree_limit=model.best_ntree_limit+80)
         preds = pred.copy()
     denom += 1
     submission = pd.DataFrame(pred, columns=['class'+str(c+1) for c in range(9)])
     submission['ID'] = pid
     submission.to_csv('submission_xgb_fold_'  + str(i) + '.csv', index=False)
-    #print(model.feature_importances_)
 
 preds/=denom
 submission = pd.DataFrame(preds, columns=['class'+str(c+1) for c in range(9)])
