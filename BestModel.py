@@ -1,5 +1,6 @@
 #author: Jiachen Wang
 
+print("Importing packages in need")
 from  sklearn import model_selection
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -225,10 +226,9 @@ submission['ID'] = pid
 submission.to_csv('submission_xgb.csv', index=False)
 
 '''
-references:
-https://www.kaggle.com/c/msk-redefining-cancer-treatment
+References to some other participants:
+
 https://www.kaggle.com/the1owl/redefining-treatment-0-57456
-https://www.kaggle.com/dextrousjinx/brief-insight-on-genetic-variations
 https://www.kaggle.com/reiinakano/basic-nlp-bag-of-words-tf-idf-word2vec-lstm
 https://www.kaggle.com/danofer/genetic-variants-to-protein-features
 '''
